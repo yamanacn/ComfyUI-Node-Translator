@@ -1,7 +1,8 @@
 # ComfyUI 节点翻译工具
 
 一个用于翻译 ComfyUI 插件节点信息的工具，支持批量检测和翻译节点信息。
-
+需要配合AIGODLIKE-ComfyUI-Translation使用
+将最终翻译的json直接放入AIGODLIKE-ComfyUI-Translation/zh-CN\Nodes中即可
 ## 功能特点
 
 - 自动检测插件目录中的节点信息
