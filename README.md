@@ -5,7 +5,7 @@
 ## 功能特点
 
 - 自动检测插件目录中的节点信息
-- 使用火山引擎 API 进行中文翻译
+- 使用火山引擎 Doubao-1.5-pro-32k API 进行中文翻译
 - 支持批量翻译和进度显示
 - 提供节点对比功能
 - 详细的翻译日志和费用统计
@@ -13,6 +13,7 @@
 ## API 配置说明
 
 ### 火山引擎 API 配置
+详细教学见：https://www.bilibili.com/video/BV1LCN2eZEAX/?spm_id_from=333.1387.homepage.video_card.click&vd_source=ae85ec1de21e4084d40c5d4eec667b8f
 1. 访问[火山引擎控制台](https://console.volcengine.com/)
 2. 创建 API 密钥，获取 `API Key`
 3. 创建翻译模型，获取 `Model ID`
