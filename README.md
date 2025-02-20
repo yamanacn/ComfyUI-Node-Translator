@@ -1,5 +1,8 @@
 声明：作者纯开发小白一枚，本项目全程由cursor开发，本人只是一个提问的工具人，如果遇到BUG，请轻喷。
 
+程序配套的视频讲解：
+【comfyui插件翻译自由啦，直接中文搜索节点，继承辣椒酱的意志~】 https://www.bilibili.com/video/BV1hmAneGEbZ/?share_source=copy_web&vd_source=af996d4f530575a9634db534351104a6
+
 # ComfyUI 节点翻译工具
 
 一个用于翻译 ComfyUI 插件节点信息的工具，支持批量检测和翻译节点信息。
