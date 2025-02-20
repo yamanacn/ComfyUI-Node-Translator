@@ -1,0 +1,48 @@
+{
+    "api_keys": {
+        "aliyun": "your-aliyun-api-key",
+        "siliconflow": "your-siliconflow-api-key"
+    },
+    "api_configs": {
+        "aliyun": {
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "models": {
+                "qwen-plus": {
+                    "temperature": 0.3,
+                    "max_tokens": 4096,
+                    "timeout": 30
+                },
+                "deepseek-v3": {
+                    "temperature": 0.3,
+                    "max_tokens": 4096,
+                    "timeout": 30
+                }
+            }
+        },
+        "siliconflow": {
+            "base_url": "https://api.siliconflow.cn/v1/chat/completions",
+            "models": {
+                "Qwen/Qwen2.5-7B-Instruct": {
+                    "temperature": 0.3,
+                    "max_tokens": 4096,
+                    "stream": false,
+                    "top_p": 0.95,
+                    "frequency_penalty": 0,
+                    "presence_penalty": 0,
+                    "stop": ["</s>", "<|endoftext|>"],
+                    "response_format": {"type": "text"}
+                },
+                "deepseek-ai/DeepSeek-V3": {
+                    "temperature": 0.3,
+                    "max_tokens": 4096,
+                    "stream": false,
+                    "top_p": 0.95,
+                    "frequency_penalty": 0,
+                    "presence_penalty": 0,
+                    "stop": ["</s>", "<|endoftext|>"],
+                    "response_format": {"type": "text"}
+                }
+            }
+        }
+    }
+} 

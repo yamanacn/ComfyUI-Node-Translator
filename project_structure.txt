@@ -1,0 +1,17 @@
+comfyui_node_translator/
+├── README.md
+├── requirements.txt
+├── src/
+│   ├── __init__.py
+│   ├── node_parser.py      # 节点解析模块
+│   ├── translator.py       # 翻译服务模块
+│   ├── file_utils.py       # 文件处理工具
+│   └── web/
+│       ├── static/
+│       │   ├── css/
+│       │   │   └── style.css
+│       │   └── js/
+│       │       └── main.js
+│       └── templates/
+│           └── index.html
+└── main.py                 # 主程序入口 

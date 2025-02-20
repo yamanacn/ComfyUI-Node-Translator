@@ -1,0 +1,35 @@
+# 配置文件
+config.json
+
+# 输出目录
+output/
+output/*/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# 临时文件
+*.bak
+*.tmp
+
+# 忽略工作目录
+workspace/
+
+# 忽略翻译结果和日志
+*_translated.json
+all_translations.json
+nodes_to_translate.json
+detection_detail.log 

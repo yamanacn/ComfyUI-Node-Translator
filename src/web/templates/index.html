@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>ComfyUI 节点翻译器</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>ComfyUI 节点翻译器</h1>
+        
+        <div class="settings-panel">
+            <div class="input-group">
+                <label for="api-key">API密钥:</label>
+                <input type="password" id="api-key" value="sk-3287a6dd50d742398a81846aa2da8e14">
+            </div>
+            
+            <div class="input-group">
+                <label for="folder-path">插件文件夹:</label>
+                <input type="text" id="folder-path" readonly>
+                <button id="select-folder">选择文件夹</button>
+                <button id="view-json" class="secondary">查看待翻译JSON</button>
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <button id="start-translation" class="primary">开始翻译</button>
+            <button id="stop-translation" disabled>终止翻译</button>
+        </div>
+
+        <div class="progress-panel">
+            <div class="progress-bar">
+                <div class="progress-fill"></div>
+            </div>
+            <div class="progress-text">0%</div>
+        </div>
+
+        <div class="log-panel">
+            <h3>翻译日志</h3>
+            <div id="log-content"></div>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html> 

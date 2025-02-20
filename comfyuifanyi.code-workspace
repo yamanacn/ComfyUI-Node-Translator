@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../cmyui/ComfyUI/custom_nodes/comfyui_fill-nodes"
+		}
+	],
+	"settings": {}
+}
