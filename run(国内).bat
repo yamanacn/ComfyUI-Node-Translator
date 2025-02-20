@@ -30,6 +30,11 @@ if errorlevel 1 (
     exit /b
 )
 
+:: 设置pip国内源
+echo [信息] 设置pip国内源...
+pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/
+pip config set global.trusted-host mirrors.aliyun.com
+
 :: 检查是否需要安装依赖
 if not exist "requirements.txt" (
     echo [错误] 未找到 requirements.txt 文件
@@ -46,14 +51,23 @@ for /f "tokens=1,2 delims==" %%a in (requirements.txt) do (
     :: 检查包是否已安装
     findstr /i /c:"%%a" installed_packages.txt > nul
     if errorlevel 1 (
-        echo [信息] 正在安装 %%a...
-        pip install %%a
+        echo [信息] 正在从国内源安装 %%a...
+        pip install %%a -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
         if errorlevel 1 (
-            echo [错误] 安装 %%a 失败
-            del installed_packages.txt
-            deactivate
-            pause
-            exit /b
+            echo [错误] 安装 %%a 失败，尝试其他源...
+            :: 尝试清华源
+            pip install %%a -i https://pypi.tuna.tsinghua.edu.cn/simple/ --trusted-host pypi.tuna.tsinghua.edu.cn
+            if errorlevel 1 (
+                :: 尝试腾讯源
+                pip install %%a -i https://mirrors.cloud.tencent.com/pypi/simple/ --trusted-host mirrors.cloud.tencent.com
+                if errorlevel 1 (
+                    echo [错误] 所有源安装失败
+                    del installed_packages.txt
+                    deactivate
+                    pause
+                    exit /b
+                )
+            )
         )
     )
 )

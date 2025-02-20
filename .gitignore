@@ -32,4 +32,10 @@ workspace/
 *_translated.json
 all_translations.json
 nodes_to_translate.json
-detection_detail.log 
+detection_detail.log
+
+# 虚拟环境
+venv/
+ENV/
+.env
+.venv 
