@@ -120,18 +120,29 @@ class Translator:
         except Exception as e:
             raise Exception(f"翻译失败: {str(e)}")
 
-    def translate_nodes(self, nodes_info: Dict, folder_path: str, batch_size: int = 6, update_progress=None) -> Dict:
-        """翻译节点信息"""
+    def translate_nodes(self, nodes_info: Dict, folder_path: str, batch_size: int = 6, 
+                       update_progress=None, temp_dir: str = None) -> Dict:
+        """翻译节点信息
+        
+        Args:
+            nodes_info: 节点信息字典
+            folder_path: 插件文件夹路径
+            batch_size: 批处理大小
+            update_progress: 进度更新回调函数
+            temp_dir: 临时文件目录路径
+        """
         temp_files = []  # 记录所有临时文件
         self.total_prompt_tokens = 0
         self.total_completion_tokens = 0
         self.total_tokens = 0
+        
         try:
-            # 获取插件专属的输出目录
-            plugin_dirs = FileUtils.get_plugin_output_dir(self.base_path, folder_path)
+            # 使用传入的临时目录或默认目录
+            work_dir = temp_dir if temp_dir else os.path.join(self.dirs["temp"], "workspace")
+            os.makedirs(work_dir, exist_ok=True)
             
             # 保存原始待翻译文件
-            original_file = os.path.join(plugin_dirs["temp"], "nodes_to_translate.json")
+            original_file = os.path.join(work_dir, "nodes_to_translate.json")
             FileUtils.save_json(nodes_info, original_file)
             temp_files.append(original_file)
             
@@ -172,7 +183,7 @@ class Translator:
                     
                     # 3. 保存已修正的批次
                     batch_file = os.path.join(
-                        plugin_dirs["translations"], 
+                        work_dir, 
                         f"batch_{batch_idx + 1}_translated.json"
                     )
                     FileUtils.save_json(batch_corrected, batch_file)
@@ -191,7 +202,7 @@ class Translator:
             
             # 保存最终结果
             plugin_name = os.path.basename(folder_path.rstrip(os.path.sep))
-            final_file = os.path.join(plugin_dirs["translations"], f"{plugin_name}.json")
+            final_file = os.path.join(work_dir, f"{plugin_name}.json")
             
             # 最终验证
             if update_progress:

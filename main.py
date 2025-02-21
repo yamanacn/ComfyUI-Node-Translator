@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext, messagebox
+from tkinterdnd2 import *  # 导入所有组件，包括 DND_FILES
 import threading
 import os
 from src.node_parser import NodeParser
@@ -10,11 +11,20 @@ import json
 import time
 from src.translation_config import TranslationServices
 from src.diff_tab import DiffTab
+from typing import List
+import logging  # 添加日志模块
+import shutil
 
 class ComfyUITranslator:
     def __init__(self, root):
         self.root = root
         self.root.title("ComfyUI 节点翻译 - 作者 OldX")
+        
+        # 设置日志
+        logging.basicConfig(
+            level=logging.INFO,
+            format='[%(levelname)s] %(message)s'
+        )
         
         # 设置最小窗口大小
         self.root.minsize(900, 800)
@@ -59,6 +69,11 @@ class ComfyUITranslator:
         # 创建对比功能标签页
         self.diff_tab = DiffTab(self.tab_control)
         self.tab_control.add(self.diff_tab, text="对比功能")
+        
+        # 创建操作说明标签页
+        self.help_tab = ttk.Frame(self.tab_control)
+        self.tab_control.add(self.help_tab, text="操作说明")
+        self.setup_help_ui()
 
         # 在翻译功能标签页中添加控件
         self.setup_translation_ui()
@@ -72,6 +87,10 @@ class ComfyUITranslator:
         self.work_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspace")
         os.makedirs(self.work_dir, exist_ok=True)
         
+        # 初始化变量
+        self.folder_path = tk.StringVar()  # 添加 folder_path 变量
+        self.plugin_folders = []  # 存储选择的文件夹列表
+        
     def select_folder(self):
         folder = filedialog.askdirectory()
         if folder:
@@ -79,15 +98,25 @@ class ComfyUITranslator:
             self.log(f"已选择文件夹: {folder}")
             
     def log(self, message):
-        self.log_text.insert(tk.END, f"[{message}]\n")
+        """添加日志"""
+        logging.info(message)  # 在终端显示日志
+        self.log_text.insert(tk.END, f"[{message}]\n")  # 在 GUI 中显示日志
         self.log_text.see(tk.END)
         
     def detect_nodes(self):
         """检测文件夹中的节点"""
-        if not self.folder_path.get():
-            tk.messagebox.showerror("错误", "请先选择插件文件夹！")
-            return
-            
+        if hasattr(self, 'plugin_folders') and self.plugin_folders:
+            # 批量处理模式
+            self.detect_batch_nodes()
+        else:
+            # 单文件夹模式
+            if not self.folder_path.get():
+                tk.messagebox.showerror("错误", "请先选择插件文件夹！")
+                return
+            self.detect_single_folder()
+
+    def detect_single_folder(self):
+        """检测单个文件夹的节点"""
         self.detect_btn.config(state=tk.DISABLED)
         self.start_btn.config(state=tk.DISABLED)
         self.view_json_btn.config(state=tk.DISABLED)
@@ -103,13 +132,107 @@ class ComfyUITranslator:
         # 在新线程中运行检测任务
         threading.Thread(
             target=self.detection_task,
-            args=(plugin_dirs,),
+            args=(plugin_dirs,),  # 只传递 plugin_dirs 参数
             daemon=True
         ).start()
+
+    def detect_batch_nodes(self):
+        """批量检测多个文件夹的节点"""
+        self.detect_btn.config(state=tk.DISABLED)
+        self.start_btn.config(state=tk.DISABLED)
+        self.view_json_btn.config(state=tk.DISABLED)
+        self.progress['value'] = 0
+        self.detected_nodes = {}
         
+        # 在新线程中运行批量检测任务
+        threading.Thread(
+            target=self.batch_detection_task,
+            daemon=True
+        ).start()
+
+    def batch_detection_task(self):
+        """批量检测任务"""
+        try:
+            total_plugins = len(self.plugin_folders)
+            total_nodes = 0
+            
+            # 创建时间戳目录
+            self.current_output_dir = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "output",
+                time.strftime("%Y%m%d_%H%M%S")
+            )
+            # 创建待翻译文件目录
+            nodes_dir = os.path.join(self.current_output_dir, "nodes_to_translate")
+            os.makedirs(nodes_dir, exist_ok=True)
+            os.makedirs(os.path.join(self.current_output_dir, "temp"), exist_ok=True)
+            
+            self.log(f"[初始化] 创建输出目录: {self.current_output_dir}")
+            
+            for i, plugin_folder in enumerate(self.plugin_folders, 1):
+                plugin_name = os.path.basename(plugin_folder)
+                self.log(f"\n[检测进度] 正在检测第 {i}/{total_plugins} 个插件: {plugin_name}")
+                
+                # 初始化解析器
+                node_parser = NodeParser(plugin_folder)
+                
+                # 扫描并解析节点
+                nodes = node_parser.parse_folder(plugin_folder)
+                
+                # 优化节点信息
+                nodes = node_parser.optimize_node_info(nodes)
+                
+                # 保存检测结果到时间戳目录
+                output_file = os.path.join(nodes_dir, f'{plugin_name}_nodes.json')
+                FileUtils.save_json(nodes, output_file)
+                
+                # 更新总节点数
+                total_nodes += len(nodes)
+                
+                # 更新进度
+                progress = int((i / total_plugins) * 100)
+                self.root.after(0, lambda: self.progress.configure(value=progress))
+                
+                # 将节点添加到总结果中
+                self.detected_nodes.update(nodes)
+                
+                self.log(f"[检测完成] 在插件 {plugin_name} 中找到 {len(nodes)} 个待翻译节点")
+            
+            self.log(f"\n[检测完成] 共在 {len(self.plugin_folders)} 个插件中找到 {total_nodes} 个待翻译节点")
+            
+            # 启用按钮
+            if total_nodes > 0:
+                self.root.after(0, lambda: [
+                    self.detect_btn.config(state=tk.NORMAL),
+                    self.start_btn.config(state=tk.NORMAL),
+                    self.view_json_btn.config(state=tk.NORMAL)
+                ])
+                
+        except Exception as e:
+            self.log(f"[错误] 批量检测失败: {str(e)}")
+            logging.error(f"批量检测失败: {str(e)}")
+            # 恢复按钮状态
+            self.root.after(0, lambda: [
+                self.detect_btn.config(state=tk.NORMAL),
+                self.view_json_btn.config(state=tk.DISABLED)
+            ])
+
     def detection_task(self, plugin_dirs: dict):
         """节点检测任务"""
         try:
+            # 创建时间戳目录（如果不存在）
+            if not hasattr(self, 'current_output_dir'):
+                self.current_output_dir = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "output",
+                    time.strftime("%Y%m%d_%H%M%S")
+                )
+                os.makedirs(self.current_output_dir, exist_ok=True)
+                
+            # 创建待翻译文件目录
+            nodes_dir = os.path.join(self.current_output_dir, "nodes_to_translate")
+            os.makedirs(nodes_dir, exist_ok=True)
+            
             # 初始化解析器
             node_parser = NodeParser(self.folder_path.get())
             
@@ -119,8 +242,9 @@ class ComfyUITranslator:
             # 优化节点信息
             self.detected_nodes = node_parser.optimize_node_info(self.detected_nodes)
             
-            # 保存检测结果到输出目录
-            output_file = os.path.join(plugin_dirs["temp"], 'nodes_to_translate.json')
+            # 保存检测结果到时间戳目录
+            plugin_name = os.path.basename(self.folder_path.get())
+            output_file = os.path.join(nodes_dir, f"{plugin_name}_nodes.json")
             FileUtils.save_json(self.detected_nodes, output_file)
             
             # 生成详细日志
@@ -142,144 +266,17 @@ class ComfyUITranslator:
                 self.root.after(0, lambda: [
                     self.detect_btn.config(state=tk.NORMAL),
                     self.start_btn.config(state=tk.NORMAL),
-                    self.view_json_btn.config(state=tk.NORMAL)  # 检测完成后启用查看按钮
+                    self.view_json_btn.config(state=tk.NORMAL)
                 ])
                 
         except Exception as e:
-            # 出错时恢复按钮状态
+            self.log(f"[错误] 检测失败: {str(e)}")
+            logging.error(f"检测失败: {str(e)}")
+            # 恢复按钮状态
             self.root.after(0, lambda: [
                 self.detect_btn.config(state=tk.NORMAL),
-                self.view_json_btn.config(state=tk.DISABLED)  # 保持禁用状态
+                self.view_json_btn.config(state=tk.DISABLED)
             ])
-            self.log(f"检测失败: {str(e)}")
-            
-    def start_translation(self):
-        """开始翻译"""
-        if not self.detected_nodes:
-            tk.messagebox.showerror("错误", "请先检测节点！")
-            return
-            
-        # 验证批次大小
-        try:
-            batch_size = int(self.batch_size.get())
-            if batch_size < 1:
-                raise ValueError("批次大小必须大于 0")
-        except ValueError as e:
-            tk.messagebox.showerror("错误", f"批次大小设置无效: {str(e)}")
-            return
-            
-        # 验证 API 密钥
-        api_key = self.api_key.get().strip()
-        if not api_key:
-            tk.messagebox.showerror("错误", "请输入 API 密钥！")
-            return
-            
-        # 验证火山引擎 model_id
-        model_id = self.model_id.get().strip()
-        if not model_id:
-            tk.messagebox.showerror("错误", "请输入模型 ID！")
-            return
-        
-        # 禁用按钮
-        self.start_btn.config(state=tk.DISABLED)
-        self.detect_btn.config(state=tk.DISABLED)
-        
-        # 开始翻译
-        self.log(f"\n开始翻译 {len(self.detected_nodes)} 个节点...")
-        self.log(f"使用模型: {model_id}")
-        self.log(f"每批节点数: {batch_size}")
-        
-        # 在新线程中运行翻译任务
-        threading.Thread(
-            target=self.translation_task,
-            args=(api_key, batch_size, model_id),
-            daemon=True
-        ).start()
-        
-    def stop_translation(self):
-        self.translating = False
-        self.detect_btn.config(state=tk.NORMAL)
-        self.start_btn.config(state=tk.NORMAL)
-        self.stop_btn.config(state=tk.DISABLED)
-        # 如果存在翻译结果文件，则启用查看结果按钮
-        complete_output = os.path.join(self.folder_path.get(), 'all_translations.json')
-        if os.path.exists(complete_output):
-            self.view_btn.config(state=tk.NORMAL)
-        self.log("翻译已终止")
-        
-    def translation_task(self, api_key: str, batch_size: int, model_id: str):
-        """翻译任务"""
-        try:
-            # 初始化翻译器
-            translator = Translator(
-                api_key=api_key,
-                model_id=model_id
-            )
-            
-            # 设置翻译状态
-            self.translating = True
-            self.stop_btn.config(state=tk.NORMAL)
-            
-            def update_progress(progress: int, message: str = None):
-                if not self.translating:
-                    raise Exception("翻译已被用户终止")
-                self.root.after(0, lambda: self.progress.configure(value=progress))
-                if message:
-                    self.log(message)
-            
-            # 传递插件文件夹路径
-            translated_nodes = translator.translate_nodes(
-                self.detected_nodes,
-                folder_path=self.folder_path.get(),
-                batch_size=batch_size,
-                update_progress=update_progress
-            )
-            
-            # 添加调试日志
-            self.log(f"获取到翻译结果: {len(translated_nodes)} 个节点")
-            
-            # 获取插件专属的输出目录
-            plugin_dirs = FileUtils.get_plugin_output_dir(
-                os.path.dirname(os.path.abspath(__file__)),
-                self.folder_path.get()
-            )
-            
-            # 保存完整的翻译结果
-            plugin_name = os.path.basename(self.folder_path.get())
-            final_file = os.path.join(plugin_dirs["translations"], f"{plugin_name}.json")
-            
-            try:
-                FileUtils.save_json(translated_nodes, final_file)
-                self.log(f"已保存翻译结果到: {final_file}")
-                
-                # 启用查看结果按钮
-                self.root.after(0, lambda: self.view_btn.config(state=tk.NORMAL))
-                
-            except Exception as e:
-                self.log(f"保存翻译结果失败: {str(e)}")
-            
-            if self.translating:
-                self.log("翻译完成！")
-                
-            # 添加分隔线
-            self.log("\n" + "=" * 30)
-            self.log("翻译任务完成统计")
-            self.log("-" * 20)
-            
-            # 显示统计信息
-            self.log(f"处理节点数: {len(self.detected_nodes)}")
-            self.log(f"批次大小: {batch_size}")
-            self.log(f"总批次数: {(len(self.detected_nodes) + batch_size - 1) // batch_size}")
-            
-            # tokens 使用统计会通过 update_progress 回调显示
-            
-            self.log("=" * 30 + "\n")
-            
-        except Exception as e:
-            self.log(f"翻译过程出错: {str(e)}")
-            
-        finally:
-            self.stop_translation()
 
     def test_api(self):
         """测试 API 连接"""
@@ -334,34 +331,26 @@ class ComfyUITranslator:
     def view_results(self):
         """查看翻译结果"""
         try:
-            if not self.folder_path.get():
-                messagebox.showerror("错误", "请先选择插件文件夹！")
+            if not hasattr(self, 'current_output_dir') or not self.current_output_dir:
+                messagebox.showerror("错误", "没有可查看的翻译结果！")
                 return
             
-            # 获取插件专属的输出目录
-            plugin_dirs = FileUtils.get_plugin_output_dir(
-                os.path.dirname(os.path.abspath(__file__)),
-                self.folder_path.get()
-            )
-            
-            # 获取翻译结果文件路径
-            plugin_name = os.path.basename(self.folder_path.get())
-            result_file = os.path.join(plugin_dirs["translations"], f"{plugin_name}.json")
-            
-            if not os.path.exists(result_file):
-                messagebox.showerror("错误", "未找到翻译结果文件！")
+            if not os.path.exists(self.current_output_dir):
+                messagebox.showerror("错误", "翻译结果目录不存在！")
                 return
             
-            # 使用系统默认程序打开 JSON 文件
+            # 打开文件夹
             if sys.platform == 'win32':  # Windows
-                os.startfile(result_file)
+                os.startfile(self.current_output_dir)
             elif sys.platform == 'darwin':  # macOS
-                os.system(f'open "{result_file}"')
+                os.system(f'open "{self.current_output_dir}"')
             else:  # Linux
-                os.system(f'xdg-open "{result_file}"')
+                os.system(f'xdg-open "{self.current_output_dir}"')
             
         except Exception as e:
-            messagebox.showerror("错误", f"打开文件失败：{str(e)}")
+            error_msg = f"打开结果文件夹失败：{str(e)}"
+            logging.error(error_msg)
+            messagebox.showerror("错误", error_msg)
 
     def _generate_detail_log(self, nodes: dict, plugin_dirs: dict):
         """生成详细日志"""
@@ -480,35 +469,33 @@ class ComfyUITranslator:
         self.detail_text.see(tk.END)  # 滚动到底部
 
     def view_json(self):
-        """打开待翻译的 JSON 文件"""
+        """查看待翻译的JSON文件"""
         try:
-            if not self.folder_path.get():
-                messagebox.showerror("错误", "请先选择插件文件夹！")
+            if not hasattr(self, 'current_output_dir') or not self.current_output_dir:
+                messagebox.showerror("错误", "请先执行节点检测！")
                 return
             
-            # 获取插件专属的输出目录
-            plugin_dirs = FileUtils.get_plugin_output_dir(
-                os.path.dirname(os.path.abspath(__file__)),
-                self.folder_path.get()
-            )
-            
-            # 获取最新的待翻译文件路径
-            json_file = os.path.join(plugin_dirs["temp"], "nodes_to_translate.json")
-            
-            if not os.path.exists(json_file):
-                messagebox.showerror("错误", "未找到待翻译的节点文件，请先检测节点！")
+            nodes_dir = os.path.join(self.current_output_dir, "nodes_to_translate")
+            if not os.path.exists(nodes_dir):
+                messagebox.showerror("错误", "未找到待翻译文件，请重新执行节点检测。")
                 return
             
-            # 使用系统默认程序打开 JSON 文件
+            if not os.listdir(nodes_dir):
+                messagebox.showerror("错误", "未检测到任何待翻译节点，请重新检测。")
+                return
+            
+            # 打开文件夹
             if sys.platform == 'win32':  # Windows
-                os.startfile(json_file)
+                os.startfile(nodes_dir)
             elif sys.platform == 'darwin':  # macOS
-                os.system(f'open "{json_file}"')
+                os.system(f'open "{nodes_dir}"')
             else:  # Linux
-                os.system(f'xdg-open "{json_file}"')
+                os.system(f'xdg-open "{nodes_dir}"')
             
         except Exception as e:
-            messagebox.showerror("错误", f"打开 JSON 文件失败: {str(e)}")
+            error_msg = f"打开待翻译文件夹失败：{str(e)}"
+            logging.error(error_msg)
+            messagebox.showerror("错误", error_msg)
 
     def _load_config(self) -> dict:
         """从配置文件加载配置"""
@@ -546,24 +533,72 @@ class ComfyUITranslator:
         self.test_api_btn = ttk.Button(btn_frame, text="测试API", width=10, command=self.test_api)
         self.test_api_btn.pack(side=tk.LEFT, padx=2)
         
-        # 文件夹选择框架
-        folder_frame = ttk.Frame(self.translation_tab)
+        # 修改文件夹选择框架
+        folder_frame = ttk.LabelFrame(self.translation_tab, text="插件文件夹选择", padding=5)
         folder_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        ttk.Label(folder_frame, text="插件文件夹:", width=10).pack(side=tk.LEFT)
-        self.folder_path = tk.StringVar()
-        self.folder_entry = ttk.Entry(folder_frame, textvariable=self.folder_path)
-        self.folder_entry.pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
-        self.folder_btn = ttk.Button(folder_frame, text="选择文件夹", width=12, command=self.select_folder)
-        self.folder_btn.pack(side=tk.LEFT, padx=5)
+        # 修改拖放提示文本
+        drop_label = ttk.Label(
+            folder_frame, 
+            text="请拖入插件文件夹",
+            foreground='gray',
+            font=('TkDefaultFont', 12)  # 增大标签字体
+        )
+        drop_label.pack(fill=tk.X, padx=5, pady=5)
+        
+        # 增大拖放区域高度和字体
+        self.drop_area = tk.Text(
+            folder_frame, 
+            height=6, 
+            width=50,
+            font=('TkDefaultFont', 11)  # 增大文本区域字体
+        )
+        self.drop_area.pack(fill=tk.X, padx=5, pady=5)
+        
+        # 修改提示文本
+        drop_text = (
+            "第一步：打开comfyui\\custom_nodes文件夹\n"
+            "第二步：选择需要翻译的插件文件夹，拖入该区域\n"
+            "·可以多选后一次性拖入"
+        )
+        self.drop_area.insert('1.0', drop_text)
+        self.drop_area.config(state='disabled')
+        
+        # 注册拖放目标和绑定事件
+        self.drop_area.drop_target_register(DND_FILES)
+        self.drop_area.dnd_bind('<<Drop>>', self.on_drop)
+        
+        # 按钮框架 - 只保留清除按钮
+        btn_frame = ttk.Frame(folder_frame)
+        btn_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.clear_folders_btn = ttk.Button(
+            btn_frame,
+            text="清除选择",
+            width=15,
+            command=self.clear_selected_folders,
+            state=tk.DISABLED
+        )
+        self.clear_folders_btn.pack(side=tk.LEFT, padx=5)
+        
+        # 添加插件列表显示
+        plugins_frame = ttk.LabelFrame(self.translation_tab, text="待处理插件列表", padding=5)
+        plugins_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        self.plugins_text = scrolledtext.ScrolledText(plugins_frame, height=5, width=80)
+        self.plugins_text.pack(fill=tk.BOTH, expand=True)
         
         # 进度条
         self.progress = ttk.Progressbar(self.translation_tab, length=300, mode='determinate')
         self.progress.pack(fill=tk.X, padx=10, pady=10)
         
-        # 控制按钮框架
-        btn_frame = ttk.Frame(self.translation_tab)
-        btn_frame.pack(pady=5)
+        # 创建控制区域框架（包含按钮和翻译设置）
+        control_frame = ttk.Frame(self.translation_tab)
+        control_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # 左侧：控制按钮
+        btn_frame = ttk.LabelFrame(control_frame, text="操作按钮", padding=5)
+        btn_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         
         button_width = 15
         self.detect_btn = ttk.Button(btn_frame, text="检测节点", width=button_width, command=self.detect_nodes)
@@ -587,24 +622,9 @@ class ComfyUITranslator:
         self.view_btn = ttk.Button(btn_frame, text="查看结果", width=button_width, command=self.view_results, state=tk.DISABLED)
         self.view_btn.pack(side=tk.LEFT, padx=5)
         
-        # 创建日志区域
-        log_frame = ttk.LabelFrame(self.translation_tab, text="翻译日志", padding=5)
-        log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        
-        # 创建日志文本框
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=12, width=80)
-        self.log_text.pack(fill=tk.BOTH, expand=True)
-        
-        # 创建详细日志文本框
-        detail_frame = ttk.LabelFrame(self.translation_tab, text="详细日志", padding=5)
-        detail_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        
-        self.detail_text = scrolledtext.ScrolledText(detail_frame, height=20, width=80)
-        self.detail_text.pack(fill=tk.BOTH, expand=True)
-        
-        # 翻译设置框架
-        batch_frame = ttk.LabelFrame(self.translation_tab, text="翻译设置", padding=5)
-        batch_frame.pack(fill=tk.X, padx=10, pady=5)
+        # 右侧：翻译设置
+        batch_frame = ttk.LabelFrame(control_frame, text="翻译设置", padding=5)
+        batch_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
         
         ttk.Label(batch_frame, text="一次性翻译节点数:").pack(side=tk.LEFT, padx=5)
         self.batch_size = tk.StringVar(value="6")
@@ -614,6 +634,387 @@ class ComfyUITranslator:
             batch_frame, 
             text="(建议: 5-8, 数值越大速度越快，但可能超过模型上下文限制)"
         ).pack(side=tk.LEFT, padx=5)
+        
+        # 创建日志框架（左右布局）
+        log_frame = ttk.Frame(self.translation_tab)
+        log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # 配置日志框架的网格
+        log_frame.grid_columnconfigure(0, weight=1)
+        log_frame.grid_columnconfigure(1, weight=1)
+        log_frame.grid_rowconfigure(0, weight=1)
+        
+        # 左侧：翻译日志
+        left_frame = ttk.LabelFrame(log_frame, text="翻译日志", padding=5)
+        left_frame.grid(row=0, column=0, sticky='nsew', padx=(0, 5))
+        
+        self.log_text = scrolledtext.ScrolledText(left_frame, height=20, width=60)
+        self.log_text.pack(fill=tk.BOTH, expand=True)
+        
+        # 右侧：详细日志（隐藏标题）
+        right_frame = ttk.LabelFrame(log_frame, text="", padding=5)  # 移除标题
+        right_frame.grid(row=0, column=1, sticky='nsew', padx=(5, 0))
+        
+        self.detail_text = scrolledtext.ScrolledText(right_frame, height=20, width=60)
+        self.detail_text.pack(fill=tk.BOTH, expand=True)
+        self.detail_text.pack_forget()  # 隐藏详细日志区域
+
+    def select_batch_folder(self):
+        """选择多个插件文件夹"""
+        try:
+            # 使用 askopenfilenames 并设置为只能选择文件夹
+            folders = filedialog.askopenfilenames(
+                title="选择插件文件夹中的任意文件（可多选）",
+                initialdir=os.path.dirname(self.folder_path.get()) if self.folder_path.get() else None
+            )
+            
+            if folders:
+                # 获取选择的文件夹路径列表（去重）
+                folder_paths = []
+                for file_path in folders:
+                    folder_path = os.path.dirname(file_path)
+                    if folder_path not in folder_paths:
+                        folder_paths.append(folder_path)
+                
+                # 初始化文件夹列表（如果不存在）
+                if not hasattr(self, 'plugin_folders'):
+                    self.plugin_folders = []
+                
+                # 添加新选择的文件夹（去重）
+                for folder in folder_paths:
+                    if folder not in self.plugin_folders:
+                        self.plugin_folders.append(folder)
+                
+                # 显示插件列表
+                self.display_plugin_list()
+                
+                # 在文件夹输入框中显示选择的数量
+                self.folder_path.set(f"已选择 {len(self.plugin_folders)} 个插件文件夹")
+                
+                # 启用检测按钮
+                self.detect_btn.config(state=tk.NORMAL)
+                
+                # 启用清除按钮
+                self.clear_folders_btn.config(state=tk.NORMAL)
+                
+        except Exception as e:
+            messagebox.showerror("错误", f"选择文件夹失败: {str(e)}")
+
+    def display_plugin_list(self):
+        """显示待处理的插件列表"""
+        self.plugins_text.delete('1.0', tk.END)
+        if hasattr(self, 'plugin_folders') and self.plugin_folders:
+            self.plugins_text.insert(tk.END, "待处理插件列表:\n\n")
+            for i, folder in enumerate(self.plugin_folders, 1):
+                folder_name = os.path.basename(folder)
+                folder_path = folder
+                self.plugins_text.insert(tk.END, f"{i}. {folder_name}\n   路径: {folder_path}\n\n")
+        else:
+            self.plugins_text.insert(tk.END, "未选择任何插件文件夹")
+
+    def start_translation(self):
+        """开始翻译"""
+        if hasattr(self, 'plugin_folders') and self.plugin_folders:
+            # 批量处理模式
+            self.batch_translation()
+        else:
+            # 单文件处理模式(原有逻辑)
+            self.single_translation()
+        
+    def stop_translation(self):
+        """停止翻译任务"""
+        self.translating = False
+        self.detect_btn.config(state=tk.NORMAL)
+        self.start_btn.config(state=tk.NORMAL)
+        self.stop_btn.config(state=tk.DISABLED)
+        # 不在这里修改查看结果按钮的状态
+        self.log("翻译已终止")
+        
+    def batch_translation(self):
+        """批量处理多个插件"""
+        # 验证 API 密钥和模型 ID
+        api_key = self.api_key.get().strip()
+        model_id = self.model_id.get().strip()
+        
+        if not api_key or not model_id:
+            tk.messagebox.showerror("错误", "请输入 API 密钥和模型 ID！")
+            return
+        
+        # 验证批次大小
+        try:
+            batch_size = int(self.batch_size.get())
+            if batch_size < 1:
+                raise ValueError("批次大小必须大于 0")
+        except ValueError as e:
+            tk.messagebox.showerror("错误", f"批次大小设置无效: {str(e)}")
+            return
+        
+        # 禁用按钮
+        self.start_btn.config(state=tk.DISABLED)
+        self.detect_btn.config(state=tk.DISABLED)
+        self.clear_folders_btn.config(state=tk.DISABLED)  # 只禁用清除按钮
+        
+        # 在新线程中运行批量处理任务
+        threading.Thread(
+            target=self.batch_translation_task,
+            args=(api_key, batch_size, model_id),
+            daemon=True
+        ).start()
+
+    def batch_translation_task(self, api_key: str, batch_size: int, model_id: str):
+        """批量翻译任务"""
+        try:
+            # 1. 创建时间戳目录
+            self.current_output_dir = os.path.join(  # 保存当前输出目录路径
+                os.path.dirname(os.path.abspath(__file__)),
+                "output",
+                time.strftime("%Y%m%d_%H%M%S")
+            )
+            os.makedirs(self.current_output_dir, exist_ok=True)
+            os.makedirs(os.path.join(self.current_output_dir, "temp"), exist_ok=True)
+            
+            self.log(f"[初始化] 创建翻译输出目录: {self.current_output_dir}")
+            
+            # 2. 开始翻译
+            total_plugins = len(self.plugin_folders)
+            self.translating = True
+            self.stop_btn.config(state=tk.NORMAL)
+            
+            successful_translations = []  # 记录成功的翻译
+            
+            for i, plugin_folder in enumerate(self.plugin_folders, 1):
+                if not self.translating:
+                    raise Exception("翻译已被用户终止")
+                
+                plugin_name = os.path.basename(plugin_folder)
+                self.log(f"\n[翻译进度] 正在翻译第 {i}/{total_plugins} 个插件: {plugin_name}")
+                
+                try:
+                    # 2.1 翻译节点
+                    translated_nodes = self._translate_single_plugin(
+                        plugin_folder,
+                        plugin_name,
+                        api_key,
+                        model_id,
+                        batch_size,
+                        self.current_output_dir
+                    )
+                    
+                    # 2.2 保存翻译结果
+                    result_file = os.path.join(self.current_output_dir, f"{plugin_name}.json")
+                    FileUtils.save_json(translated_nodes, result_file)
+                    
+                    # 2.3 验证保存结果
+                    if not os.path.exists(result_file):
+                        raise Exception(f"保存失败: {result_file}")
+                    
+                    successful_translations.append({
+                        'plugin_name': plugin_name,
+                        'result_file': result_file
+                    })
+                    
+                    self.log(f"[完成] 插件 {plugin_name} 翻译完成")
+                    
+                except Exception as e:
+                    self.log(f"[错误] 插件 {plugin_name} 翻译失败: {str(e)}")
+                    continue
+            
+            # 3. 清理临时文件
+            temp_dir = os.path.join(self.current_output_dir, "temp")
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+            
+            # 4. 完成处理
+            if successful_translations:
+                self.log(f"\n[完成] 翻译任务结束，成功翻译 {len(successful_translations)} 个插件")
+                self.log(f"[输出] 翻译结果已保存到: {self.current_output_dir}")
+                
+                # 清理临时文件和待翻译文件
+                nodes_dir = os.path.join(self.current_output_dir, "nodes_to_translate")
+                temp_dir = os.path.join(self.current_output_dir, "temp")
+                
+                for dir_to_clean in [nodes_dir, temp_dir]:
+                    if os.path.exists(dir_to_clean):
+                        try:
+                            shutil.rmtree(dir_to_clean)
+                            self.log(f"[清理] 已清理临时文件: {os.path.basename(dir_to_clean)}")
+                        except Exception as e:
+                            self.log(f"[警告] 清理临时文件失败: {str(e)}")
+                
+                # 启用查看结果按钮
+                self.root.after(0, lambda: self.view_btn.config(state=tk.NORMAL))
+            else:
+                self.log("\n[警告] 所有插件翻译均失败")
+                
+        except Exception as e:
+            if str(e) != "翻译已被用户终止":
+                self.log(f"[错误] 批量处理出错: {str(e)}")
+                logging.error(f"批量处理出错: {str(e)}")
+        finally:
+            # 恢复按钮状态
+            self.root.after(0, lambda: [
+                self.start_btn.config(state=tk.NORMAL),
+                self.detect_btn.config(state=tk.NORMAL),
+                self.clear_folders_btn.config(state=tk.NORMAL)
+            ])
+            self.stop_translation()
+
+    def clear_selected_folders(self):
+        """清除已选择的文件夹列表"""
+        if hasattr(self, 'plugin_folders'):
+            self.plugin_folders = []
+            self.folder_path.set("")
+            self.display_plugin_list()
+            self.clear_folders_btn.config(state=tk.DISABLED)
+
+    def on_drop(self, event):
+        """处理文件夹拖放事件"""
+        try:
+            # 获取拖放的路径
+            data = event.data
+            paths = data.split()  # Windows 下路径以空格分隔
+            
+            # 初始化文件夹列表（如果不存在）
+            if not hasattr(self, 'plugin_folders'):
+                self.plugin_folders = []
+            
+            # 处理每个路径
+            for path in paths:
+                # 移除可能的引号和空格
+                path = path.strip('" ')
+                
+                if os.path.isdir(path):
+                    # 如果是文件夹且不在列表中，添加它
+                    if path not in self.plugin_folders:
+                        self.plugin_folders.append(path)
+                        logging.info(f"添加文件夹: {path}")
+                elif os.path.isfile(path):
+                    # 如果是文件，获取其所在文件夹
+                    folder_path = os.path.dirname(path)
+                    if folder_path not in self.plugin_folders:
+                        self.plugin_folders.append(folder_path)
+                        logging.info(f"添加文件夹: {folder_path}")
+            
+            # 更新显示
+            self.display_plugin_list()
+            
+            # 更新文件夹输入框
+            self.folder_path.set(f"已选择 {len(self.plugin_folders)} 个插件文件夹")
+            
+            # 启用相关按钮
+            self.detect_btn.config(state=tk.NORMAL)
+            self.clear_folders_btn.config(state=tk.NORMAL)
+            
+            # 更新拖放区域文本
+            self.drop_area.configure(state='normal')
+            self.drop_area.delete('1.0', tk.END)
+            self.drop_area.insert('1.0',
+                "第一步：打开comfyui\\custom_nodes文件夹\n"
+                "第二步：选择需要翻译的插件文件夹，拖入该区域\n"
+                "·可以多选后一次性拖入"
+            )
+            self.drop_area.configure(state='disabled')
+            
+        except Exception as e:
+            error_msg = f"处理拖放文件夹失败: {str(e)}"
+            logging.error(error_msg)  # 在终端显示错误
+            messagebox.showerror("错误", error_msg)  # 同时显示错误对话框
+
+    def _translate_single_plugin(self, plugin_folder: str, plugin_name: str,
+                               api_key: str, model_id: str, batch_size: int,
+                               timestamp_dir: str) -> dict:
+        """翻译单个插件"""
+        # 1. 解析节点
+        node_parser = NodeParser(plugin_folder)
+        nodes = node_parser.parse_folder(plugin_folder)
+        
+        if not nodes:
+            raise Exception("未检测到节点")
+        
+        # 2. 优化节点信息
+        nodes = node_parser.optimize_node_info(nodes)
+        
+        # 3. 翻译节点
+        translator = Translator(api_key=api_key, model_id=model_id)
+        
+        def update_progress(progress: int, message: str = None):
+            if not self.translating:
+                raise Exception("翻译已被用户终止")
+            if message:
+                # 修改进度消息格式
+                if "[翻译]" in message:
+                    message = message.replace("[翻译]", "[翻译进度] 正在翻译")
+                elif "[验证]" in message:
+                    message = message.replace("[验证]", "[验证] 正在校验")
+                self.log(message)
+        
+        # 创建临时目录
+        temp_dir = os.path.join(timestamp_dir, "temp", plugin_name)
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        translated_nodes = translator.translate_nodes(
+            nodes,
+            folder_path=plugin_folder,
+            batch_size=batch_size,
+            update_progress=update_progress,
+            temp_dir=temp_dir  # 为每个插件创建独立的临时目录
+        )
+        
+        return translated_nodes
+
+    def setup_help_ui(self):
+        """设置操作说明界面"""
+        # 创建滚动文本框
+        help_text = scrolledtext.ScrolledText(
+            self.help_tab,
+            wrap=tk.WORD,
+            width=80,
+            height=30,
+            font=('TkDefaultFont', 10)
+        )
+        help_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # 添加操作说明内容
+        help_content = """
+# 操作说明
+
+## 使用步骤
+
+### 第一步：打开插件文件夹
+- 打开 `comfyui\\custom_nodes` 文件夹，确保其中包含您要翻译的插件文件夹。
+
+### 第二步：拖入插件文件夹
+- 选择需要翻译的插件文件夹，拖入程序的拖放区域。
+- 支持多选后一次性拖入。
+
+### 第三步：配置 API
+- 在程序中输入火山引擎的 API 密钥和模型 ID。
+- 点击"测试 API"按钮，确保连接正常。
+
+### 第四步：检测节点
+- 点击"检测节点"按钮，程序将扫描插件中的节点信息。
+- 检测完成后，您可以点击"查看待翻译 JSON"按钮，查看检测到的节点。
+
+### 第五步：开始翻译
+- 设置一次性翻译的节点数（建议：5-8）。
+- 点击"开始翻译"按钮，程序将开始翻译过程。
+
+### 第六步：查看翻译结果
+- 翻译完成后，您可以点击"查看结果"按钮，打开当前翻译的结果时间戳文件夹。
+
+## 注意事项
+- 确保有稳定的网络连接。
+- API 密钥请妥善保管，不要泄露。
+- 建议先用小批量测试翻译效果。
+- 如遇到问题，查看日志获取详细信息。
+
+## 相关链接
+- [火山引擎 API 配置说明](https://www.bilibili.com/video/BV1LCN2eZEAX/?spm_id_from=333.1387.homepage.video_card.click&vd_source=ae85ec1de21e4084d40c5d4eec667b8f)
+- [程序配套的视频讲解](https://www.bilibili.com/video/BV1hmAneGEbZ/?share_source=copy_web&vd_source=af996d4f530575a9634db534351104a6)
+"""
+        
+        help_text.insert('1.0', help_content)
+        help_text.config(state='disabled')  # 设置为只读
 
 def setup_styles():
     """设置自定义样式"""
@@ -641,7 +1042,7 @@ def setup_styles():
         pass  # 如果不支持，就使用默认复选框样式
 
 def main():
-    root = tk.Tk()
+    root = TkinterDnD.Tk()  # 使用 TkinterDnD 的 Tk
     setup_styles()  # 设置样式
     app = ComfyUITranslator(root)
     root.mainloop()

@@ -1,76 +1,76 @@
 @echo off
 chcp 65001 > nul
-title ComfyUI 节点翻译 - 作者 OldX
+title ComfyUI Node Translator - Startup Script
 
-:: 检查 Python 是否安装
+:: Check if Python is installed
 python --version > nul 2>&1
 if errorlevel 1 (
-    echo [错误] 未找到 Python，请先安装 Python 3.7 或更高版本
+    echo [ERROR] Python is not found. Please install Python 3.7 or higher.
     pause
     exit /b
 )
 
-:: 检查虚拟环境
+:: Check if virtual environment exists
 if not exist "venv" (
-    echo [信息] 创建虚拟环境...
+    echo [INFO] Creating virtual environment...
     python -m venv venv
     if errorlevel 1 (
-        echo [错误] 创建虚拟环境失败
+        echo [ERROR] Failed to create virtual environment.
         pause
         exit /b
     )
 )
 
-:: 激活虚拟环境
-echo [信息] 激活虚拟环境...
+:: Activate virtual environment
+echo [INFO] Activating virtual environment...
 call venv\Scripts\activate.bat
 if errorlevel 1 (
-    echo [错误] 激活虚拟环境失败
+    echo [ERROR] Failed to activate virtual environment.
     pause
     exit /b
 )
 
-:: 检查是否需要安装依赖
-if not exist "requirements.txt" (
-    echo [错误] 未找到 requirements.txt 文件
-    pause
-    exit /b
-)
-
-:: 检查并安装依赖
-echo [信息] 检查依赖...
+:: Check for required dependencies
+echo [INFO] Checking dependencies...
 pip list > installed_packages.txt 2>&1
 
-:: 读取 requirements.txt 中的每个包
+setlocal enabledelayedexpansion
+set "missing_packages="
+
+:: Read requirements.txt and check each package
 for /f "tokens=1,2 delims==" %%a in (requirements.txt) do (
-    :: 检查包是否已安装
     findstr /i /c:"%%a" installed_packages.txt > nul
     if errorlevel 1 (
-        echo [信息] 正在安装 %%a...
+        echo [INFO] Installing %%a...
         pip install %%a
         if errorlevel 1 (
-            echo [错误] 安装 %%a 失败
-            del installed_packages.txt
-            deactivate
-            pause
-            exit /b
+            echo [ERROR] Failed to install %%a.
+            set "missing_packages=1"
         )
     )
 )
 
-:: 清理临时文件
+:: Clean up temporary files
 del installed_packages.txt
 
-:: 启动程序
-echo [信息] 启动程序...
+:: If there were missing packages, exit
+if defined missing_packages (
+    echo [ERROR] Some packages could not be installed. Please check the error messages above.
+    deactivate
+    pause
+    exit /b
+)
+
+:: Start the main program
+echo [INFO] Starting the program...
 python main.py
 
-:: 如果程序异常退出，暂停显示错误信息
+:: If the program crashes, pause to show the error message
 if errorlevel 1 (
     echo.
-    echo [错误] 程序异常退出
+    echo [ERROR] The program has crashed.
     pause
 )
 
-:: 退出前停用虚拟环境
+:: Deactivate the virtual environment before exiting
 deactivate 

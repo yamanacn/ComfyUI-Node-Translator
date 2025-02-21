@@ -1,19 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+env/
+venv/
+ENV/
+.venv/
+
 # 配置文件
 config.json
 
 # 输出目录
 output/
 output/*/
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-.env
-.venv
-env/
-venv/
-ENV/
 
 # IDE
 .vscode/
@@ -38,4 +37,7 @@ detection_detail.log
 venv/
 ENV/
 .env
-.venv 
+.venv
+
+# Node modules (if applicable)
+node_modules/
